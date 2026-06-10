@@ -99,14 +99,28 @@
   const NEG  = arg => ({ type: 'neg', arg });
   const CALL = (name, args) => ({ type: 'call', name, args });
 
+  /* 可作为自由参数的单字母（π 是常量、_ 无意义，均排除） */
+  const PARAM_CHAR = /^[A-Za-zθρ]$/;
+
+  /** 标识符中是否含有内置函数名（≥2 字符），用于拦截 sinx 之类的拼写 */
+  function findFuncNameIn(s) {
+    for (const name of Object.keys(RT.functions)) {
+      if (name.length >= 2 && s.includes(name)) return name;
+    }
+    return null;
+  }
+
   class Parser {
     /**
      * @param {string} src   表达式文本
      * @param {string[]} vars 允许出现的自变量名（如 ['x'] / ['t'] / ['x','y']）
+     * @param {{lenient?:boolean}} opts lenient：未知的单字母标识符不报错，
+     *        而是解析为变量节点（应用层将其识别为"自由参数"并生成滑块）
      */
-    constructor(src, vars) {
+    constructor(src, vars, opts) {
       this.src = src;
       this.vars = vars || [];
+      this.lenient = !!(opts && opts.lenient);
       this.toks = tokenize(src);
       this.k = 0;
     }
@@ -219,26 +233,42 @@
         throw mkErr(`函数 ${s} 后需要括号，例如 ${s}(x)`, tok.pos);
       }
 
-      const parts = this.splitIdent(s, nextIsLp);
-      if (parts) {
-        let node = null;
-        for (let i = 0; i < parts.length; i++) {
-          const p = parts[i];
-          let sub;
-          if (p.kind === 'func') sub = this.parseCall(p.name, tok.pos);
-          else if (p.kind === 'var') sub = V(p.name);
-          else sub = N(RT.constants[p.name]);
-          node = node ? B('*', node, sub) : sub;
+      const parts = this.splitIdent(s, nextIsLp, false);
+      if (parts) return this.buildProduct(parts, tok.pos);
+
+      /* 宽松模式：未知的单字母 → 自由参数（变量节点）；
+         多字母先排除疑似函数名拼写（如 sinx），其余按单字母乘积拆分（ab → a·b） */
+      if (this.lenient) {
+        if (s.length === 1 && PARAM_CHAR.test(s)) return V(s);
+        const fname = findFuncNameIn(s);
+        if (fname) {
+          throw mkErr(`未知符号 "${s}"（若要使用函数 ${fname} 请写 ${fname}(…)）`, tok.pos);
         }
-        return node;
+        const lparts = this.splitIdent(s, nextIsLp, true);
+        if (lparts) return this.buildProduct(lparts, tok.pos);
       }
 
       const varHint = this.vars.length ? `，本类型可用变量：${this.vars.join('、')}` : '';
       throw mkErr(`未知符号 "${s}"${varHint}`, tok.pos);
     }
 
-    /* 把 "pix"、"xsin" 之类的连写拆成已知符号序列；失败返回 null */
-    splitIdent(s, nextIsLp) {
+    /** 把拆分结果组装成乘积节点 */
+    buildProduct(parts, pos) {
+      let node = null;
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        let sub;
+        if (p.kind === 'func') sub = this.parseCall(p.name, pos);
+        else if (p.kind === 'var') sub = V(p.name);
+        else sub = N(RT.constants[p.name]);
+        node = node ? B('*', node, sub) : sub;
+      }
+      return node;
+    }
+
+    /* 把 "pix"、"xsin" 之类的连写拆成已知符号序列；失败返回 null
+     * lenient 时允许未知单字母作为自由参数参与拆分（ax → a·x） */
+    splitIdent(s, nextIsLp, lenient) {
       const vars = this.vars;
       const rec = (i) => {
         if (i === s.length) return [];
@@ -248,10 +278,13 @@
           if (j === s.length && nextIsLp && RT.functions[sub]) {
             return [{ kind: 'func', name: sub }];
           }
-          if (vars.includes(sub) || RT.constants[sub] !== undefined) {
+          const known = vars.includes(sub) || RT.constants[sub] !== undefined;
+          const asParam = !known && lenient && sub.length === 1 && PARAM_CHAR.test(sub);
+          if (known || asParam) {
             const rest = rec(j);
             if (rest) {
-              return [{ kind: vars.includes(sub) ? 'var' : 'const', name: sub }, ...rest];
+              const kind = vars.includes(sub) || asParam ? 'var' : 'const';
+              return [{ kind, name: sub }, ...rest];
             }
           }
         }
@@ -287,10 +320,26 @@
    * 解析表达式
    * @param {string} src
    * @param {string[]} vars 允许的自变量
+   * @param {{lenient?:boolean}} [opts] lenient：未知单字母按自由参数处理
    * @returns AST
    */
-  function parse(src, vars) {
-    return new Parser(String(src), vars).parse();
+  function parse(src, vars, opts) {
+    return new Parser(String(src), vars, opts).parse();
+  }
+
+  /** 收集 AST 中出现的全部变量名（含宽松模式产生的自由参数） */
+  function collectVars(node, out) {
+    out = out || new Set();
+    switch (node.type) {
+      case 'var': out.add(node.name); break;
+      case 'neg': collectVars(node.arg, out); break;
+      case 'bin':
+        collectVars(node.left, out);
+        collectVars(node.right, out);
+        break;
+      case 'call': node.args.forEach(a => collectVars(a, out)); break;
+    }
+    return out;
   }
 
   /* ---------------- AST → 字符串（用于显示导数表达式等） ---------------- */
@@ -337,6 +386,6 @@
     return prec < parentPrec ? '(' + s + ')' : s;
   }
 
-  core.parser = { tokenize, parse, astToString, nodes: { N, V, B, NEG, CALL } };
+  core.parser = { tokenize, parse, astToString, collectVars, nodes: { N, V, B, NEG, CALL } };
 
 })(typeof window !== 'undefined' ? window : globalThis);

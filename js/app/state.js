@@ -49,6 +49,33 @@
       domainGroups: [{ lbl: 'n', keys: ['n0', 'n1'] }],
       defaults: { exprs: { a: '1/n' }, domain: { n0: '1', n1: '30' } }
     },
+    series: {
+      name: '级数部分和 Sɴ = Σuₙ', chip: 'Σuₙ', mode: '2d', vars: ['n', 'x'],
+      fields: [{ key: 'u', lbl: 'uₙ(x) =', ph: '例：x^n/n!（通项，含 n，可含 x）' }],
+      domainGroups: [{ lbl: 'n', keys: ['n0', 'nmax'] }],
+      defaults: { exprs: { u: 'x^n/n!' }, domain: { n0: '0', nmax: '40' }, seriesN: 8 }
+    },
+    slopefield: {
+      name: '方向场 y′ = f(x, y)', chip: 'y′ 场', mode: '2d', vars: ['x', 'y'],
+      fields: [{ key: 'f', lbl: 'y′ =', ph: '例：x - y' }],
+      domainGroups: [{ lbl: '初值点', keys: ['px', 'py'], point: true }],
+      defaults: { exprs: { f: 'x - y' }, domain: { px: '0', py: '0' } }
+    },
+    vectorfield: {
+      name: '向量场 F = (P, Q)', chip: '(P,Q)', mode: '2d', vars: ['x', 'y'],
+      fields: [
+        { key: 'P', lbl: 'P(x,y) =', ph: '例：-y' },
+        { key: 'Q', lbl: 'Q(x,y) =', ph: '例：x' }
+      ],
+      domainGroups: [],
+      defaults: { exprs: { P: '-y', Q: 'x' }, domain: {} }
+    },
+    gradfield: {
+      name: '梯度场 ∇f（含等值线）', chip: '∇f', mode: '2d', vars: ['x', 'y'],
+      fields: [{ key: 'f', lbl: 'f(x,y) =', ph: '例：x^2 + y^2' }],
+      domainGroups: [],
+      defaults: { exprs: { f: '(x^2 + y^2)/2' }, domain: {} }
+    },
     surface: {
       name: '三维曲面 z = f(x, y)', chip: 'z=f(x,y)', mode: '3d', vars: ['x', 'y'],
       fields: [{ key: 'z', lbl: 'z(x,y) =', ph: '例：(x^2 - y^2)/4' }],
@@ -83,6 +110,10 @@
     explicit:  /^\s*(y|f\s*\(\s*x\s*\))\s*=\s*/i,
     polar:     /^\s*(r|ρ|rho)\s*(\(\s*(θ|theta|t)\s*\))?\s*=\s*/i,
     sequence:  /^\s*a\s*(\(\s*n\s*\))?\s*=\s*/i,
+    series:    /^\s*u\s*(\(\s*n\s*(,\s*x\s*)?\s*\))?\s*=\s*/i,
+    slopefield:/^\s*(y'|y′|dy\s*\/\s*dx)\s*=\s*/i,
+    gradfield: /^\s*[fz]\s*(\(\s*x\s*,\s*y\s*\))?\s*=\s*/i,
+    vectorfield:/^\s*[pq]\s*(\(\s*x\s*,\s*y\s*\))?\s*=\s*/i,
     surface:   /^\s*z\s*(\(\s*x\s*,\s*y\s*\))?\s*=\s*/i,
     parametric:/^\s*[xy]\s*(\(\s*t\s*\))?\s*=\s*/i,
     curve3d:   /^\s*[xyz]\s*(\(\s*t\s*\))?\s*=\s*/i
@@ -108,10 +139,12 @@
 
   let fnSeq = 1;
 
+  const PARAM_DEFAULTS = { value: 1, min: -5, max: 5 };
+
   function newFunc(type, overrides) {
     overrides = overrides || {};
     const def = TYPE_DEFS[type];
-    return {
+    const fn = {
       id: 'fn' + (fnSeq++),
       type,
       label: overrides.label || null,
@@ -119,8 +152,19 @@
       visible: true,
       exprs: Object.assign({}, def.defaults.exprs, overrides.exprs),
       domain: Object.assign({}, def.defaults.domain, overrides.domain),
+      params: {},                                   // 自由参数：name → {value, min, max}
+      seriesN: def.defaults.seriesN !== undefined ? def.defaults.seriesN : null,
       c: null
     };
+    if (overrides.params) {
+      for (const [k, v] of Object.entries(overrides.params)) {
+        fn.params[k] = Object.assign({}, PARAM_DEFAULTS, v);
+      }
+    }
+    if (overrides.seriesN !== undefined && overrides.seriesN !== null) {
+      fn.seriesN = +overrides.seriesN;
+    }
+    return fn;
   }
 
   /** 选下一个未被占用的调色板颜色 */
@@ -130,14 +174,44 @@
     return PALETTE[state.funcs.length % PALETTE.length];
   }
 
+  /* ---------------- 自由参数（参数滑块） ---------------- */
+
+  /** 表达式 AST 中 def.vars 之外的变量即自由参数；同步进 fn.params（保留已有取值/范围） */
+  function syncParams(fn, def, asts) {
+    const free = new Set();
+    for (const k of Object.keys(asts)) {
+      for (const name of core.parser.collectVars(asts[k])) {
+        if (!def.vars.includes(name)) free.add(name);
+      }
+    }
+    for (const name of Object.keys(fn.params)) {
+      if (!free.has(name)) delete fn.params[name];
+    }
+    for (const name of free) {
+      if (!fn.params[name]) fn.params[name] = Object.assign({}, PARAM_DEFAULTS);
+    }
+  }
+
+  /** 把求值闭包包一层：求值前将参数当前值写入作用域（滑块拖动无需重编译） */
+  function bindParams(raw, fn) {
+    const params = fn.params;
+    const names = Object.keys(params);
+    if (!names.length) return raw;
+    return scope => {
+      for (let i = 0; i < names.length; i++) scope[names[i]] = params[names[i]].value;
+      return raw(scope);
+    };
+  }
+
   /* ---------------- 编译 ---------------- */
 
   function recompileFn(fn) {
     const def = TYPE_DEFS[fn.type];
     const c = { ok: false, err: null, fns: {}, asts: {}, dom: {} };
     fn.c = c;
+    if (!fn.params) fn.params = {};
     try {
-      /* 表达式字段 */
+      /* 表达式字段（宽松解析：未知单字母 → 自由参数） */
       for (const field of def.fields) {
         const raw = String(fn.exprs[field.key] || '').trim();
         if (!raw) throw new Error(`${field.lbl} 表达式不能为空`);
@@ -146,28 +220,46 @@
           if (fn.type === 'implicit') {
             ast = parseImplicit(raw, def.vars);
           } else {
-            ast = core.parser.parse(stripPrefix(raw, fn.type), def.vars);
+            ast = core.parser.parse(stripPrefix(raw, fn.type), def.vars, { lenient: true });
           }
           c.asts[field.key] = ast;
-          c.fns[field.key] = core.compile.compile(ast);
         } catch (e) {
           throw new Error(`${field.lbl} ${e.message}`);
         }
       }
+
+      syncParams(fn, def, c.asts);
+      for (const field of def.fields) {
+        c.fns[field.key] = bindParams(core.compile.compile(c.asts[field.key]), fn);
+      }
+
       /* 范围端点 */
       for (const g of def.domainGroups) {
         for (const k of g.keys) {
+          const raw = fn.domain[k];
+          /* 初值点（如方向场）允许留空 → 不画积分曲线 */
+          if (g.point && (raw === undefined || String(raw).trim() === '')) {
+            c.dom[k] = null;
+            continue;
+          }
           try {
-            c.dom[k] = parseConstExpr(fn.domain[k]);
+            c.dom[k] = parseConstExpr(raw);
           } catch (e) {
-            throw new Error(`${g.lbl} 范围 ${e.message}`);
+            throw new Error(`${g.lbl}${g.point ? ' ' : ' 范围 '}${e.message}`);
           }
         }
-        const [k0, k1] = g.keys;
-        if (!(c.dom[k1] > c.dom[k0])) {
-          throw new Error(`${g.lbl} 范围需满足 左端点 < 右端点`);
+        if (!g.point) {
+          const [k0, k1] = g.keys;
+          if (!(c.dom[k1] > c.dom[k0])) {
+            throw new Error(`${g.lbl} 范围需满足 左端点 < 右端点`);
+          }
         }
       }
+
+      /* 类型特有的派生编译 */
+      if (fn.type === 'gradfield') prepareGradient(fn, c);
+      if (fn.type === 'series') prepareSeries(fn, c);
+
       c.ok = true;
     } catch (e) {
       c.err = e.message;
@@ -175,16 +267,75 @@
     return c;
   }
 
-  /** 隐函数：允许 "F(x,y)" 或 "左边 = 右边" 两种写法 */
+  /** 梯度场：∂f/∂x、∂f/∂y 优先符号求导，失败退化为数值偏导 */
+  function prepareGradient(fn, c) {
+    let gx = null, gy = null;
+    try {
+      gx = core.derivative.derivative(c.asts.f, 'x');
+      gy = core.derivative.derivative(c.asts.f, 'y');
+    } catch (e) {
+      gx = gy = null;
+    }
+    if (gx && gy) {
+      c.fns.gp = bindParams(core.compile.compile(gx), fn);
+      c.fns.gq = bindParams(core.compile.compile(gy), fn);
+      c.gradText = `∇f = (${core.parser.astToString(gx)},  ${core.parser.astToString(gy)})`;
+    } else {
+      const F = c.fns.f;
+      c.fns.gp = scope => core.calculus.numericDiff(xx => F({ x: xx, y: scope.y }), scope.x);
+      c.fns.gq = scope => core.calculus.numericDiff(yy => F({ x: scope.x, y: yy }), scope.y);
+      c.gradText = '∇f 采用数值偏导（该函数暂不支持符号求导）';
+    }
+  }
+
+  /** 级数：S(scope) = Σ uₙ，N 取 fn.seriesN（实时读取，拖动 N 滑块无需重编译） */
+  function prepareSeries(fn, c) {
+    const n0 = Math.ceil(c.dom.n0);
+    const nmax = Math.floor(c.dom.nmax);
+    if (nmax < n0) throw new Error('n 范围内没有整数项');
+    if (nmax - n0 > 400) throw new Error('项数过多（N 上限与起点之差最多 400）');
+    if (!Number.isFinite(fn.seriesN)) fn.seriesN = Math.min(nmax, n0 + 8);
+    fn.seriesN = Math.min(nmax, Math.max(n0, Math.round(fn.seriesN)));
+    c.seriesRange = { n0, nmax };
+    c.hasX = core.parser.collectVars(c.asts.u).has('x');
+
+    const u = c.fns.u;
+    if (c.hasX) {
+      /* 函数项级数：Sɴ(x) 作为 x 的函数绘制 */
+      c.fns.S = scope => {
+        const N = fn.seriesN;
+        let s = 0;
+        for (let k = n0; k <= N; k++) {
+          scope.n = k;
+          s += u(scope);
+        }
+        return s;
+      };
+    } else {
+      /* 常数项级数：S(n) = 前 n 项部分和（火柴杆图） */
+      c.fns.S = scope => {
+        const N = Math.floor(scope.n);
+        let s = 0;
+        for (let k = n0; k <= N; k++) {
+          scope.n = k;
+          s += u(scope);
+        }
+        scope.n = N;
+        return s;
+      };
+    }
+  }
+
+  /** 隐函数：允许 "F(x,y)" 或 "左边 = 右边" 两种写法（同样支持自由参数） */
   function parseImplicit(raw, vars) {
     const parts = raw.split('=');
     if (parts.length > 2) throw new Error('最多只能有一个等号');
     if (parts.length === 2) {
-      const l = core.parser.parse(parts[0], vars);
-      const r = core.parser.parse(parts[1], vars);
+      const l = core.parser.parse(parts[0], vars, { lenient: true });
+      const r = core.parser.parse(parts[1], vars, { lenient: true });
       return { type: 'bin', op: '-', left: l, right: r };
     }
-    return core.parser.parse(raw, vars);
+    return core.parser.parse(raw, vars, { lenient: true });
   }
 
   function recompileAll(state) {
@@ -198,10 +349,14 @@
       targetId: null,
       tangent:  { on: false, x0: '1', normal: false },
       deriv:    { d1: false, d2: false },
-      integral: { on: false, a: '0', b: 'pi' },
-      taylor:   { on: false, x0: '0', order: 5 }
+      integral: { on: false, a: '0', b: 'pi', riemann: false, rn: 24, rmethod: 'mid' },
+      taylor:   { on: false, x0: '0', order: 5 },
+      features: { zeros: false, extrema: false, inflections: false }
     };
   }
+
+  /* 工具配置的可合并键（加载示例 / 恢复持久化时按键合并） */
+  const TOOL_KEYS = ['tangent', 'deriv', 'integral', 'taylor', 'features'];
 
   function createDefaultState() {
     const state = {
@@ -225,6 +380,8 @@
       exprs: it.exprs,
       domain: it.domain,
       label: it.label || null,
+      params: it.params,
+      seriesN: it.seriesN,
       color: PALETTE[i % PALETTE.length]
     }));
     state.mode = ex.mode || '2d';
@@ -251,7 +408,7 @@
     /* 工具 */
     state.tools = defaultTools();
     if (ex.tools) {
-      for (const k of ['tangent', 'deriv', 'integral', 'taylor']) {
+      for (const k of TOOL_KEYS) {
         if (ex.tools[k]) Object.assign(state.tools[k], ex.tools[k]);
       }
     }
@@ -271,7 +428,8 @@
       mode: state.mode,
       funcs: state.funcs.map(f => ({
         id: f.id, type: f.type, label: f.label, color: f.color,
-        visible: f.visible, exprs: f.exprs, domain: f.domain
+        visible: f.visible, exprs: f.exprs, domain: f.domain,
+        params: f.params, seriesN: f.seriesN
       })),
       view2: { cx: vp.cx, cy: vp.cy, ppuX: vp.ppuX, ppuY: vp.ppuY, equal: vp.equal },
       view3: state.view3,
@@ -297,7 +455,8 @@
         .filter(f => TYPE_DEFS[f.type])
         .map(f => {
           const fn = newFunc(f.type, {
-            exprs: f.exprs, domain: f.domain, label: f.label, color: f.color
+            exprs: f.exprs, domain: f.domain, label: f.label, color: f.color,
+            params: f.params, seriesN: f.seriesN
           });
           fn.visible = f.visible !== false;
           return fn;
@@ -314,7 +473,7 @@
       if (data.tools) {
         state.tools = defaultTools();
         state.tools.targetId = data.tools.targetId || null;
-        for (const k of ['tangent', 'deriv', 'integral', 'taylor']) {
+        for (const k of TOOL_KEYS) {
           if (data.tools[k]) Object.assign(state.tools[k], data.tools[k]);
         }
       }
@@ -334,8 +493,8 @@
 
   app.state = {
     PALETTE, TYPE_DEFS,
-    createDefaultState, newFunc, nextColor,
-    recompileFn, recompileAll, parseConstExpr,
+    createDefaultState, defaultTools, newFunc, nextColor,
+    recompileFn, recompileAll, parseConstExpr, bindParams,
     loadExample, saveState, loadState
   };
 

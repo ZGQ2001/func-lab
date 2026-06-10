@@ -52,6 +52,8 @@
     state.runtime.hits = out.hits;
     state.runtime.rect = out.rect;
     updateStatusView();
+    /* 特征点在渲染时按可见范围扫描（state.toolsData.featureData），渲染后回显列表 */
+    app.tools.updateResults(state);
   }
 
   let saveTimer = 0;
@@ -168,11 +170,7 @@
   document.getElementById('btn-clear').addEventListener('click', () => {
     if (!confirm('确定要清空所有函数并重置视图吗？')) return;
     state.funcs = [];
-    state.tools.targetId = null;
-    state.tools.tangent = { on: false, x0: '1', normal: false };
-    state.tools.deriv = { d1: false, d2: false };
-    state.tools.integral = { on: false, a: '0', b: 'pi' };
-    state.tools.taylor = { on: false, x0: '0', order: 5 };
+    state.tools = S.defaultTools();
     state.view2.reset();
     state.view3 = { az: -37.5, el: 30, zoom: 1 };
     state.mode = '2d';

@@ -15,15 +15,27 @@
   let refreshFn = () => {};
   let els = null;   // 面板内部 DOM 引用
 
+  /* 黎曼和 n 增大演示的定时器 */
+  let riemannTimer = 0;
+  function stopRiemannAnim() {
+    if (riemannTimer) {
+      clearInterval(riemannTimer);
+      riemannTimer = 0;
+    }
+    if (els && els.riemannPlay) els.riemannPlay.textContent = '▶';
+  }
+
   /* ---------------- 计算 ---------------- */
 
-  /** 确保目标函数的符号导数已缓存（recompile 后自动失效重算） */
+  /** 确保目标函数的符号导数已缓存（recompile 后自动失效重算）
+   *  编译结果经 bindParams 包装，参数滑块拖动时取最新值 */
   function ensureDerivatives(target) {
     const c = target.c;
+    const bind = app.state.bindParams;
     if (c.d1ast === undefined) {
       try {
         c.d1ast = core.derivative.derivative(c.asts.f, 'x');
-        c.d1fn = core.compile.compile(c.d1ast);
+        c.d1fn = bind(core.compile.compile(c.d1ast), target);
         c.derivErr = null;
       } catch (e) {
         c.d1ast = null;
@@ -35,7 +47,7 @@
       if (c.d1ast) {
         try {
           c.d2ast = core.derivative.derivative(c.d1ast, 'x');
-          c.d2fn = core.compile.compile(c.d2ast);
+          c.d2fn = bind(core.compile.compile(c.d2ast), target);
         } catch (e) {
           c.d2ast = null;
           c.d2fn = null;
@@ -67,6 +79,17 @@
       ? (x => target.c.d1fn({ x }))
       : (x => core.calculus.numericDiff(fx, x));
 
+    /* 自由参数当前取值（泰勒展开等符号计算需要代入） */
+    const paramScope = {};
+    for (const [k, v] of Object.entries(target.params || {})) paramScope[k] = v.value;
+
+    /* 始终缓存三条求值通道：特征点扫描（plotter 按可见范围计算）依赖它们 */
+    td.evalF = fx;
+    td.evalD1 = d1Eval;
+    td.evalD2 = target.c.d2fn
+      ? (x => target.c.d2fn({ x }))
+      : (x => core.calculus.numericDiff(d1Eval, x));
+
     /* 导数曲线 */
     if (T.deriv.d1) {
       td.d1fn = scope => d1Eval(scope.x);
@@ -91,23 +114,26 @@
       }
     }
 
-    /* 定积分 */
+    /* 定积分（+ 可选黎曼和矩形） */
     if (T.integral.on) {
       try {
         const a = app.state.parseConstExpr(T.integral.a);
         const b = app.state.parseConstExpr(T.integral.b);
         const r = core.calculus.simpson(fx, a, b, 2000);
         td.integral = { a, b, value: r.value, ok: r.ok, nanCount: r.nanCount, shadeFn: f };
+        if (T.integral.riemann) {
+          td.integral.riemann = core.calculus.riemann(fx, a, b, T.integral.rn, T.integral.rmethod);
+        }
       } catch (e) {
         td.errors.integral = '积分限 ' + e.message;
       }
     }
 
-    /* 泰勒展开 */
+    /* 泰勒展开（自由参数按当前滑块值代入） */
     if (T.taylor.on) {
       try {
         const x0 = app.state.parseConstExpr(T.taylor.x0);
-        td.taylor = core.calculus.taylor(target.c.asts.f, x0, T.taylor.order);
+        td.taylor = core.calculus.taylor(target.c.asts.f, x0, T.taylor.order, paramScope);
       } catch (e) {
         td.errors.taylor = 'x₀ ' + e.message;
       }
@@ -249,10 +275,13 @@
       });
     }
 
-    /* ---- 定积分 ---- */
+    /* ---- 定积分（含黎曼和） ---- */
     {
-      const g = group('定积分（区域着色 + Simpson 数值积分）', '#0072BD',
-        on => { state.tools.integral.on = on; });
+      const g = group('定积分（着色 + Simpson · 黎曼和）', '#0072BD',
+        on => {
+          state.tools.integral.on = on;
+          if (!on) stopRiemannAnim();
+        });
       els.integral = g;
       const a = exprInput(state.tools.integral.a, v => { state.tools.integral.a = v; });
       const b = exprInput(state.tools.integral.b, v => { state.tools.integral.b = v; });
@@ -262,6 +291,99 @@
         h('span', { text: '从 a =' }), a,
         h('span', { text: '到 b =' }), b
       ]), g.result);
+
+      /* 黎曼和：开关 + 取样方式 + 矩形数 n 滑块 + 播放 */
+      const riCb = h('input', { type: 'checkbox' });
+      riCb.addEventListener('change', () => {
+        state.tools.integral.riemann = riCb.checked;
+        riRows.classList.toggle('hidden', !riCb.checked);
+        if (!riCb.checked) stopRiemannAnim();
+        refreshFn();
+      });
+      els.riemannCb = riCb;
+
+      const method = h('select');
+      for (const [v, t] of [['left', '左端点'], ['mid', '中点'], ['right', '右端点']]) {
+        method.appendChild(h('option', { value: v, text: t }));
+      }
+      method.value = state.tools.integral.rmethod;
+      method.addEventListener('change', () => {
+        state.tools.integral.rmethod = method.value;
+        refreshFn();
+      });
+      els.riemannMethod = method;
+
+      const nVal = h('span', { class: 'mono-val', text: String(state.tools.integral.rn) });
+      const nSlider = h('input', {
+        type: 'range', min: '2', max: '200', step: '1',
+        value: String(state.tools.integral.rn)
+      });
+      nSlider.addEventListener('input', () => {
+        state.tools.integral.rn = parseInt(nSlider.value, 10);
+        nVal.textContent = nSlider.value;
+        refreshFn();
+      });
+      els.riemannN = nSlider;
+      els.riemannNVal = nVal;
+
+      const playBtn = h('button', { class: 'play-btn', title: '演示 n 增大、黎曼和趋于定积分', text: '▶' });
+      playBtn.addEventListener('click', () => {
+        if (riemannTimer) { stopRiemannAnim(); return; }
+        playBtn.textContent = '❚❚';
+        riemannTimer = setInterval(() => {
+          const I = state.tools.integral;
+          I.rn = I.rn >= 200 ? 4 : Math.min(200, Math.max(I.rn + 1, Math.round(I.rn * 1.12)));
+          nSlider.value = String(I.rn);
+          nVal.textContent = String(I.rn);
+          refreshFn();
+        }, 450);
+      });
+      els.riemannPlay = playBtn;
+
+      const riRows = h('div', { class: state.tools.integral.riemann ? '' : 'hidden' }, [
+        h('div', { class: 'tool-row' }, [
+          h('span', { text: '取样' }), method,
+          h('span', { text: 'n =' }), nVal, playBtn
+        ]),
+        h('div', { class: 'tool-row' }, [nSlider])
+      ]);
+      els.riemannRows = riRows;
+
+      g.body.insertBefore(h('div', { class: 'tool-row' }, [
+        h('label', { class: 'inline' }, [riCb, h('span', { text: '黎曼和矩形（用矩形面积逼近）' })])
+      ]), g.result);
+      g.body.insertBefore(riRows, g.result);
+    }
+
+    /* ---- 特征点 ---- */
+    {
+      const g = group('特征点（零点 · 极值 · 拐点）', '#2ca02c', on => {
+        const F = state.tools.features;
+        if (on && !F.zeros && !F.extrema && !F.inflections) {
+          F.zeros = F.extrema = true;
+          zeroCb.checked = extCb.checked = true;
+        }
+        if (!on) {
+          F.zeros = F.extrema = F.inflections = false;
+          zeroCb.checked = extCb.checked = infCb.checked = false;
+        }
+      });
+      els.features = g;
+      const zeroCb = h('input', { type: 'checkbox' });
+      const extCb = h('input', { type: 'checkbox' });
+      const infCb = h('input', { type: 'checkbox' });
+      zeroCb.addEventListener('change', () => { state.tools.features.zeros = zeroCb.checked; refreshFn(); });
+      extCb.addEventListener('change', () => { state.tools.features.extrema = extCb.checked; refreshFn(); });
+      infCb.addEventListener('change', () => { state.tools.features.inflections = infCb.checked; refreshFn(); });
+      els.featZeros = zeroCb;
+      els.featExtrema = extCb;
+      els.featInflections = infCb;
+      g.body.insertBefore(h('div', { class: 'tool-row' }, [
+        h('label', { class: 'inline' }, [zeroCb, h('span', { text: '零点 ○' })]),
+        h('label', { class: 'inline' }, [extCb, h('span', { text: '极值 ▲▼' })]),
+        h('label', { class: 'inline' }, [infCb, h('span', { text: '拐点 ◆' })])
+      ]), g.result);
+      g.body.insertBefore(h('div', { class: 'tool-hint', text: '在当前可见范围内自动搜索，随缩放平移更新。' }), g.result);
     }
 
     /* ---- 泰勒展开 ---- */
@@ -318,6 +440,7 @@
   /** 把 state.tools 的当前值同步到控件（加载示例/恢复状态后调用） */
   function syncInputs(state) {
     if (!els) return;
+    stopRiemannAnim();
     const T = state.tools;
     els.tangent.cb.checked = T.tangent.on;
     els.tangent.body.classList.toggle('hidden', !T.tangent.on);
@@ -334,11 +457,24 @@
     els.integral.body.classList.toggle('hidden', !T.integral.on);
     els.integralA.value = T.integral.a;
     els.integralB.value = T.integral.b;
+    els.riemannCb.checked = !!T.integral.riemann;
+    els.riemannRows.classList.toggle('hidden', !T.integral.riemann);
+    els.riemannMethod.value = T.integral.rmethod || 'mid';
+    els.riemannN.value = String(T.integral.rn || 24);
+    els.riemannNVal.textContent = String(T.integral.rn || 24);
 
     els.taylor.cb.checked = T.taylor.on;
     els.taylor.body.classList.toggle('hidden', !T.taylor.on);
     els.taylorX0.value = T.taylor.x0;
     els.taylorOrder.value = String(T.taylor.order);
+
+    const F = T.features || {};
+    const featOn = F.zeros || F.extrema || F.inflections;
+    els.features.cb.checked = !!featOn;
+    els.features.body.classList.toggle('hidden', !featOn);
+    els.featZeros.checked = !!F.zeros;
+    els.featExtrema.checked = !!F.extrema;
+    els.featInflections.checked = !!F.inflections;
   }
 
   /** 结果回显（每次 recompute 后调用） */
@@ -381,6 +517,12 @@
       if (td.errors.integral) show(els.integral, td.errors.integral);
       else if (td.integral) {
         let txt = `∫[${fmt(td.integral.a, 5)} → ${fmt(td.integral.b, 5)}] f(x) dx ≈ ${fmt(td.integral.value, 8)}`;
+        const R = td.integral.riemann;
+        if (R) {
+          const mName = { left: '左端点', mid: '中点', right: '右端点' }[R.method] || R.method;
+          txt += `\n黎曼和 Sₙ ≈ ${fmt(R.value, 8)}（n = ${R.n}，${mName}）`;
+          txt += `\n|Sₙ − ∫| ≈ ${fmt(Math.abs(R.value - td.integral.value), 4)}`;
+        }
         if (!td.integral.ok) txt += `\n注意：区间内有 ${td.integral.nanCount} 个无定义采样点，结果按 0 处理（瑕积分需谨慎）`;
         show(els.integral, txt);
       } else show(els.integral, '');
@@ -393,6 +535,31 @@
         show(els.taylor, td.taylor.ok ? td.taylor.text : td.taylor.reason);
       } else show(els.taylor, '');
     } else show(els.taylor, '');
+
+    /* 特征点（featureData 由 plotter 按可见范围扫描后写回） */
+    const F = T.features || {};
+    if (F.zeros || F.extrema || F.inflections) {
+      const fd = td.featureData;
+      if (!fd) {
+        show(els.features, '（无可分析的目标函数）');
+      } else {
+        const lines = [];
+        const list = (arr, withY) => arr.slice(0, 8)
+          .map(p => withY ? `(${fmt(p.x, 5)}, ${fmt(p.y, 5)})` : fmt(p.x, 5))
+          .join(', ') + (arr.length > 8 ? ` 等 ${arr.length} 个` : '');
+        if (F.zeros) {
+          lines.push(fd.zeros.length ? `零点 ○  x = ${list(fd.zeros, false)}` : '零点 ○  可见范围内未找到');
+        }
+        if (F.extrema) {
+          lines.push(fd.maxima.length ? `极大 ▲  ${list(fd.maxima, true)}` : '极大 ▲  可见范围内未找到');
+          lines.push(fd.minima.length ? `极小 ▼  ${list(fd.minima, true)}` : '极小 ▼  可见范围内未找到');
+        }
+        if (F.inflections) {
+          lines.push(fd.inflections.length ? `拐点 ◆  ${list(fd.inflections, true)}` : '拐点 ◆  可见范围内未找到');
+        }
+        show(els.features, lines.join('\n'));
+      }
+    } else show(els.features, '');
   }
 
   function init(state, refresh) {

@@ -277,8 +277,197 @@
     },
 
     {
+      cat: '参数滑块',
+      items: [
+        {
+          name: '振幅与频率 a·sin(bx)',
+          desc: '拖动 a、b 滑块（或点 ▶ 播放）观察振幅/频率变化',
+          preview: 'y = a·sin(b·x)',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 60 },
+          items: [{
+            type: 'explicit', exprs: { f: 'a*sin(b*x)' },
+            params: { a: { value: 1.5, min: -3, max: 3 }, b: { value: 2, min: 0.2, max: 6 } }
+          }]
+        },
+        {
+          name: '二次函数族 ax² + bx + c',
+          desc: '观察 a 控制开口、b 平移对称轴、c 上下平移',
+          preview: 'y = a·x² + b·x + c',
+          mode: '2d',
+          view: { cx: 0, cy: 1, ppu: 55 },
+          items: [{
+            type: 'explicit', exprs: { f: 'a*x^2 + b*x + c' },
+            params: {
+              a: { value: 1, min: -3, max: 3 },
+              b: { value: 0, min: -5, max: 5 },
+              c: { value: 0, min: -4, max: 4 }
+            }
+          }]
+        },
+        {
+          name: '利萨茹图形',
+          desc: '频率比 a : b 决定花纹，试试整数比与无理比',
+          preview: 'x = sin(a·t), y = sin(b·t)',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 170 },
+          items: [{
+            type: 'parametric', label: '利萨茹曲线',
+            exprs: { x: 'sin(a*t)', y: 'sin(b*t)' },
+            domain: { t0: '0', t1: '2pi' },
+            params: { a: { value: 3, min: 1, max: 8 }, b: { value: 2, min: 1, max: 8 } }
+          }]
+        },
+        {
+          name: '可变心形线（极坐标）',
+          desc: 'r = a(1 + cos θ)，a 控制大小',
+          preview: 'r = a(1 + cos θ)',
+          mode: '2d',
+          view: { cx: 1.4, cy: 0, ppu: 80 },
+          items: [{
+            type: 'polar', label: '心形线',
+            exprs: { r: 'a(1 + cos(θ))' },
+            domain: { th0: '0', th1: '2pi' },
+            params: { a: { value: 2, min: 0.5, max: 4 } }
+          }]
+        }
+      ]
+    },
+
+    {
+      cat: '级数部分和（动画）',
+      items: [
+        {
+          name: '幂级数逼近 e^x',
+          desc: 'Σ xⁿ/n!，拖动或播放 N 观察逐项逼近',
+          preview: 'Sɴ(x) = Σ x^n/n!',
+          mode: '2d',
+          view: { cx: 0.4, cy: 1.8, ppu: 60 },
+          items: [
+            {
+              type: 'series', exprs: { u: 'x^n/n!' },
+              domain: { n0: '0', nmax: '40' }, seriesN: 3
+            },
+            { type: 'explicit', exprs: { f: 'e^x' }, label: '极限 e^x' }
+          ]
+        },
+        {
+          name: '几何级数 Σxⁿ',
+          desc: '|x| < 1 收敛到 1/(1−x)，注意收敛域外发散',
+          preview: 'Sɴ(x) = Σ x^n → 1/(1−x)',
+          mode: '2d',
+          view: { cx: 0, cy: 1.5, ppu: 90 },
+          items: [
+            {
+              type: 'series', exprs: { u: 'x^n' },
+              domain: { n0: '0', nmax: '60' }, seriesN: 5
+            },
+            { type: 'explicit', exprs: { f: '1/(1 - x)' }, label: '和函数 1/(1−x)' }
+          ]
+        },
+        {
+          name: '傅里叶级数：方波',
+          desc: 'Σ 4·sin((2n−1)x)/((2n−1)π)，注意吉布斯现象',
+          preview: 'Sɴ(x) = Σ 4sin((2n-1)x)/((2n-1)π)',
+          mode: '2d',
+          view: { cx: 3.1, cy: 0, ppu: 70 },
+          items: [{
+            type: 'series', label: '方波的傅里叶部分和',
+            exprs: { u: '4sin((2n - 1)x)/((2n - 1)pi)' },
+            domain: { n0: '1', nmax: '50' }, seriesN: 3
+          }]
+        },
+        {
+          name: '数项级数 Σ1/n² → π²/6',
+          desc: '常数项级数：火柴杆图显示部分和数列',
+          preview: 'S(N) = Σ 1/n²',
+          mode: '2d',
+          view: { cx: 25, cy: 1.2, ppuX: 14, ppuY: 260, equal: false },
+          items: [
+            {
+              type: 'series', exprs: { u: '1/n^2' },
+              domain: { n0: '1', nmax: '60' }, seriesN: 10
+            },
+            { type: 'explicit', exprs: { f: 'pi^2/6' }, label: '极限 π²/6' }
+          ]
+        }
+      ]
+    },
+
+    {
+      cat: '方向场与向量场',
+      items: [
+        {
+          name: '方向场 y′ = x − y',
+          desc: '一阶线性方程，积分曲线 y = x − 1 + Ce⁻ˣ',
+          preview: "y′ = x − y，过 (0, 0)",
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 55 },
+          items: [{
+            type: 'slopefield', exprs: { f: 'x - y' },
+            domain: { px: '0', py: '0' }
+          }]
+        },
+        {
+          name: 'Logistic 增长方向场',
+          desc: 'y′ = y(1 − y)：S 形增长，y = 1 是稳定平衡',
+          preview: "y′ = y(1 − y)，过 (0, 0.2)",
+          mode: '2d',
+          view: { cx: 3, cy: 0.55, ppuX: 70, ppuY: 300, equal: false },
+          items: [{
+            type: 'slopefield', label: 'Logistic 方程',
+            exprs: { f: 'y(1 - y)' },
+            domain: { px: '0', py: '0.2' }
+          }]
+        },
+        {
+          name: '旋转向量场',
+          desc: 'F = (−y, x)：圆周旋转，散度 0、旋度 2',
+          preview: 'P = −y, Q = x',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 60 },
+          items: [{ type: 'vectorfield', exprs: { P: '-y', Q: 'x' } }]
+        },
+        {
+          name: '梯度场：旋转抛物面',
+          desc: '∇f 与等值线（同心圆）处处正交，指向增长最快方向',
+          preview: 'f = (x² + y²)/2',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 60 },
+          items: [{ type: 'gradfield', exprs: { f: '(x^2 + y^2)/2' } }]
+        },
+        {
+          name: '梯度场：马鞍面',
+          desc: '鞍点 (0,0) 处梯度为零，等值线为双曲线族',
+          preview: 'f = (x² − y²)/2',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 60 },
+          items: [{ type: 'gradfield', exprs: { f: '(x^2 - y^2)/2' } }]
+        }
+      ]
+    },
+
+    {
       cat: '微积分演示',
       items: [
+        {
+          name: '黎曼和逼近定积分',
+          desc: '左端点矩形 → 播放 n 增大，矩形和趋于 ∫₀^π sin = 2',
+          preview: 'f(x) = sin(x)，n 个矩形',
+          mode: '2d',
+          view: { cx: 1.6, cy: 0.4, ppu: 110 },
+          items: [{ type: 'explicit', exprs: { f: 'sin(x)' } }],
+          tools: { integral: { on: true, a: '0', b: 'pi', riemann: true, rn: 8, rmethod: 'left' } }
+        },
+        {
+          name: '特征点自动标注',
+          desc: '自动找零点 ○、极值 ▲▼、拐点 ◆',
+          preview: 'f(x) = x³ − 3x',
+          mode: '2d',
+          view: { cx: 0, cy: 0, ppu: 75 },
+          items: [{ type: 'explicit', exprs: { f: 'x^3 - 3x' } }],
+          tools: { features: { zeros: true, extrema: true, inflections: true } }
+        },
         {
           name: '切线与法线',
           desc: '三次曲线在 x₀ 处的切线',

@@ -18,10 +18,10 @@
     require('../js/plot/viewport.js');   // 纯数学，无 DOM 依赖
   }
   const NS = (isNode ? globalThis : window).FuncLab;
-  const { parse, astToString } = NS.core.parser;
+  const { parse, astToString, collectVars } = NS.core.parser;
   const { compile } = NS.core.compile;
   const { derivative, NotDifferentiableError } = NS.core.derivative;
-  const { simpson, taylor, tangentAt } = NS.core.calculus;
+  const { simpson, riemann, taylor, tangentAt, odeCurve, findRoots } = NS.core.calculus;
 
   const results = [];
   let passed = 0;
@@ -151,6 +151,90 @@
     if (!r.ok) throw new Error(r.reason);
     assertNear(r.k, 6, 1e-5);
     assertNear(r.y0, 9);
+  });
+
+  /* ---------------- 宽松解析（参数滑块） ---------------- */
+
+  check('宽松解析 a*sin(b*x)：自由参数可求值', () => {
+    const ast = parse('a*sin(b*x)', ['x'], { lenient: true });
+    const f = compile(ast);
+    assertNear(f({ x: Math.PI / 2, a: 2, b: 1 }), 2);
+  });
+  check('collectVars 收集 x 与自由参数 a、b', () => {
+    const vars = collectVars(parse('a*sin(b*x)', ['x'], { lenient: true }));
+    if (!vars.has('a') || !vars.has('b') || !vars.has('x')) {
+      throw new Error('实际收集到 ' + [...vars].join(','));
+    }
+  });
+  check('宽松解析连写 ax → a·x', () => {
+    const f = compile(parse('ax', ['x'], { lenient: true }));
+    assertNear(f({ a: 3, x: 4 }), 12);
+  });
+  check('宽松解析 a(x+1) → a·(x+1)', () => {
+    const f = compile(parse('a(x+1)', ['x'], { lenient: true }));
+    assertNear(f({ a: 2, x: 4 }), 10);
+  });
+  check('宽松下 sinx 仍报错（不拆成 s·i·n·x）', () =>
+    assertThrows(() => parse('sinx', ['x'], { lenient: true })));
+  check('严格模式未知符号仍报错', () => assertThrows(() => parse('a*x', ['x'])));
+  check('宽松下已知连写 pix 仍优先解析为 π·x', () => {
+    const f = compile(parse('pix', ['x'], { lenient: true }));
+    assertNear(f({ x: 2 }), 2 * Math.PI);
+  });
+
+  /* ---------------- 黎曼和 ---------------- */
+
+  check('黎曼和 中点法 n=10 ∫₀¹x² = 0.3325', () => {
+    const f = compile(parse('x^2', ['x']));
+    const r = riemann(x => f({ x }), 0, 1, 10, 'mid');
+    assertNear(r.value, 0.3325, 1e-12);
+    if (r.rects.length !== 10) throw new Error('矩形数 ' + r.rects.length);
+  });
+  check('黎曼和 递增函数：左和 < 积分 < 右和', () => {
+    const f = compile(parse('x^2', ['x']));
+    const L = riemann(x => f({ x }), 0, 1, 50, 'left').value;
+    const R = riemann(x => f({ x }), 0, 1, 50, 'right').value;
+    if (!(L < 1 / 3 && 1 / 3 < R)) throw new Error(`L=${L}, R=${R}`);
+  });
+
+  /* ---------------- RK4 积分曲线 ---------------- */
+
+  check("RK4 y′=y, y(0)=1：正向 y ≈ e^x", () => {
+    const sol = odeCurve((x, y) => y, 0, 1, -1, 1, { density: 400 });
+    if (!sol.ok || !sol.fwd.length) throw new Error('积分失败');
+    const last = sol.fwd[sol.fwd.length - 1];
+    assertNear(last.y, Math.exp(last.x), 1e-6);
+  });
+  check("RK4 y′=y：反向积分 y ≈ e^x", () => {
+    const sol = odeCurve((x, y) => y, 0, 1, -1, 1, { density: 400 });
+    const last = sol.bwd[sol.bwd.length - 1];
+    assertNear(last.y, Math.exp(last.x), 1e-6);
+  });
+  check('RK4 初值处斜率无定义 → ok=false', () => {
+    const sol = odeCurve((x, y) => NaN, 0, 1, -1, 1);
+    if (sol.ok) throw new Error('不应成功');
+  });
+
+  /* ---------------- 扫描求根 ---------------- */
+
+  check('findRoots sin 在 [-7,7] 找到 5 个根', () => {
+    const roots = findRoots(Math.sin, -7, 7, 800);
+    if (roots.length !== 5) throw new Error('得到 ' + roots.length + ' 个：' + roots.join(','));
+    assertNear(roots[2], 0, 1e-6);
+    assertNear(roots[3], Math.PI, 1e-6);
+  });
+  check('findRoots 无根函数返回空', () => {
+    const roots = findRoots(x => x * x + 1, -5, 5, 400);
+    if (roots.length !== 0) throw new Error('得到 ' + roots.length + ' 个');
+  });
+
+  /* ---------------- 泰勒展开的参数作用域 ---------------- */
+
+  check('泰勒展开代入参数 a·sin(x)，c₁ = a = 2', () => {
+    const t = taylor(parse('a*sin(x)', ['x'], { lenient: true }), 0, 5, { a: 2 });
+    if (!t.ok) throw new Error(t.reason);
+    assertNear(t.coeffs[1], 2, 1e-10);
+    assertNear(t.coeffs[3], -2 / 6, 1e-10);
   });
 
   /* ---------------- 刻度工具 ---------------- */

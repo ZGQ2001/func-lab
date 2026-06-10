@@ -13,11 +13,13 @@
 
   /**
    * @param {(scope:Object)=>number} F  二元函数求值
+   * @param {{width?:number, cellPx?:number}} [opts] 线宽 / 栅格尺寸（等值线用粗栅格细浅线）
    * @returns 命中检测点
    */
-  function drawImplicit(ctx, vp, rect, F, color) {
-    const cols = Math.max(8, Math.ceil(rect.w / CELL_PX));
-    const rows = Math.max(8, Math.ceil(rect.h / CELL_PX));
+  function drawImplicit(ctx, vp, rect, F, color, opts) {
+    const cellPx = (opts && opts.cellPx) || CELL_PX;
+    const cols = Math.max(8, Math.ceil(rect.w / cellPx));
+    const rows = Math.max(8, Math.ceil(rect.h / cellPx));
     const [xmin, xmax] = vp.xRange(rect);
     const [ymin, ymax] = vp.yRange(rect);
     const dx = (xmax - xmin) / cols;
@@ -99,7 +101,7 @@
     /* 绘制所有线段 */
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = (opts && opts.width) || 1.8;
     ctx.lineCap = 'round';
     ctx.beginPath();
     for (let s = 0; s < segs.length; s++) {

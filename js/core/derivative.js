@@ -172,6 +172,10 @@
             if (isNum(r, 1)) return l;
             if (isNum(l, -1)) return simplify(NEG(r));
             if (isNum(r, -1)) return simplify(NEG(l));
+            /* 负号外提：(−u)·(−v) = u·v，(−u)·v = −(u·v) */
+            if (l.type === 'neg' && r.type === 'neg') return simplify(B('*', l.arg, r.arg));
+            if (l.type === 'neg') return simplify(NEG(B('*', l.arg, r)));
+            if (r.type === 'neg') return simplify(NEG(B('*', l, r.arg)));
             /* 数字系数合并：a·(b·x) = (a·b)·x */
             if (isNum(l) && r.type === 'bin' && r.op === '*' && isNum(r.left)) {
               return simplify(B('*', N(l.value * r.left.value), r.right));
@@ -182,6 +186,15 @@
           case '/':
             if (isNum(l, 0)) return N(0);
             if (isNum(r, 1)) return l;
+            /* 负号外提：(−u)/v = −(u/v)，u/(−v) = −(u/v) */
+            if (l.type === 'neg' && r.type === 'neg') return simplify(B('/', l.arg, r.arg));
+            if (l.type === 'neg') return simplify(NEG(B('/', l.arg, r)));
+            if (r.type === 'neg') return simplify(NEG(B('/', l, r.arg)));
+            /* 系数约分：(k·u)/c = (k/c)·u（k、c 均为数字） */
+            if (isNum(r) && l.type === 'bin' && l.op === '*' && isNum(l.left)) {
+              const k = l.left.value / r.value;
+              if (Number.isFinite(k)) return simplify(B('*', N(k), l.right));
+            }
             break;
           case '^':
             if (isNum(r, 0)) return N(1);
@@ -192,8 +205,15 @@
         return B(op, l, r);
       }
 
-      case 'call':
-        return CALL(node.name, node.args.map(simplify));
+      case 'call': {
+        const args = node.args.map(simplify);
+        /* ln(e) = 1：(c^u)′ 规则在 c = e 时的常见残留 */
+        if ((node.name === 'ln' || node.name === 'log') &&
+            args.length === 1 && isNum(args[0], Math.E)) {
+          return N(1);
+        }
+        return CALL(node.name, args);
+      }
 
       default:
         return node;

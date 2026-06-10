@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FuncLab · 函数图像实验室</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='6'%20fill='%23D95319'/%3E%3Ctext%20x='16'%20y='23'%20font-size='20'%20font-family='Georgia'%20font-style='italic'%20text-anchor='middle'%20fill='white'%3Ef%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ======================= 标题栏 ======================= -->
+  <header class="app-header">
+    <span class="logo" aria-hidden="true">ƒ</span>
+    <span class="app-title">FuncLab <span class="app-subtitle">函数图像实验室</span></span>
+    <span class="app-ver">R1.0</span>
+    <span class="flex-spacer"></span>
+    <span class="app-note">本地运行 · 无需联网</span>
+  </header>
+
+  <!-- ======================= 工具条（Ribbon） ======================= -->
+  <nav id="ribbon" aria-label="工具条">
+    <div class="ribbon-group">
+      <div class="ribbon-group-buttons">
+        <button class="rbtn" id="btn-examples" title="打开示例库：高等数学经典图像">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M3 5h6.5A2.5 2.5 0 0 1 12 7.5V20a2.5 2.5 0 0 0-2.5-2.5H3zM21 5h-6.5A2.5 2.5 0 0 0 12 7.5V20a2.5 2.5 0 0 1 2.5-2.5H21z"/></svg></span>
+          <span class="rbtn-label">示例库</span>
+        </button>
+        <button class="rbtn" id="btn-export" title="将当前图像导出为 PNG">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M12 3v11m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+          <span class="rbtn-label">导出图像</span>
+        </button>
+        <button class="rbtn" id="btn-help" title="表达式语法与使用说明">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.6 2.6 0 1 1 3.5 2.4c-.8.3-1.3 1-1.3 1.9v.3M11.9 17h.2"/></svg></span>
+          <span class="rbtn-label">语法帮助</span>
+        </button>
+        <button class="rbtn" id="btn-clear" title="清空全部函数并重置视图">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5h5v2M6.5 7l1 13h9l1-13M10 11v5m4-5v5"/></svg></span>
+          <span class="rbtn-label">清空</span>
+        </button>
+      </div>
+      <div class="ribbon-group-label">文件</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-buttons">
+        <button class="rbtn" id="btn-home" title="复位视图到初始范围">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5M5.5 9.8V20h13V9.8"/></svg></span>
+          <span class="rbtn-label">复位视图</span>
+        </button>
+        <button class="rbtn toggle" id="btn-equal" title="X/Y 轴等比例（圆看起来才是圆）" aria-pressed="true">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M9 15l6-6M9 9.5V9h.5M15 14.5v.5h-.5"/></svg></span>
+          <span class="rbtn-label">等比例</span>
+        </button>
+        <button class="rbtn toggle" id="btn-grid" title="显示/隐藏网格" aria-pressed="true">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M10 4v16M16 4v16M4 10h16M4 16h16"/></svg></span>
+          <span class="rbtn-label">网格</span>
+        </button>
+        <button class="rbtn toggle" id="btn-legend" title="显示/隐藏图例" aria-pressed="true">
+          <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11M4 7h2.5M4 12h2.5M4 17h2.5"/></svg></span>
+          <span class="rbtn-label">图例</span>
+        </button>
+      </div>
+      <div class="ribbon-group-label">视图</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-buttons">
+        <div class="mode-switch" role="tablist" aria-label="绘图模式">
+          <button class="mode-btn active" id="mode-2d" role="tab" aria-selected="true" title="二维平面绘图">
+            <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M5 4v15h15M8 16c1.5-5 4-8 10-9"/></svg></span>
+            2D 平面
+          </button>
+          <button class="mode-btn" id="mode-3d" role="tab" aria-selected="false" title="三维空间绘图（曲面与空间曲线）">
+            <span class="rbtn-icon"><svg viewBox="0 0 24 24"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1zM12 12l8-4.9M12 12L4 7.1M12 12v9.5"/></svg></span>
+            3D 空间
+          </button>
+        </div>
+      </div>
+      <div class="ribbon-group-label">模式</div>
+    </div>
+  </nav>
+
+  <!-- ======================= 主区域 ======================= -->
+  <main id="main">
+    <!-- 左侧：函数列表 + 分析工具 -->
+    <aside id="sidebar">
+      <div class="side-section-head">
+        <span class="head-title">函数列表</span>
+        <span class="flex-spacer"></span>
+        <div class="add-wrap">
+          <button class="btn-add" id="btn-add-fn" title="添加函数">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 添加
+          </button>
+          <div class="add-menu hidden" id="add-menu"></div>
+        </div>
+      </div>
+      <div id="fn-list"></div>
+
+      <div class="side-section-head">
+        <span class="head-title">分析工具</span>
+        <span class="head-hint">微积分 · 针对显式函数</span>
+      </div>
+      <div id="tools-panel"></div>
+    </aside>
+
+    <!-- 右侧：绘图区 -->
+    <section id="plot-wrap">
+      <canvas id="plot-canvas"></canvas>
+    </section>
+  </main>
+
+  <!-- ======================= 状态栏 ======================= -->
+  <footer id="statusbar">
+    <span class="sb-item" id="sb-coords">x = —, y = —</span>
+    <span class="sb-item" id="sb-view"></span>
+    <span class="flex-spacer"></span>
+    <span class="sb-item sb-hint" id="sb-hint">滚轮缩放 · 拖动平移 · 单击曲线显示坐标 · Shift/Ctrl+滚轮 单轴缩放</span>
+  </footer>
+</div>
+
+<!-- ======================= 示例库对话框 ======================= -->
+<div class="modal-mask hidden" id="modal-examples">
+  <div class="modal modal-examples" role="dialog" aria-label="示例库">
+    <div class="modal-head">
+      <span>示例库 — 高等数学经典图像</span>
+      <button class="modal-close" data-close title="关闭">×</button>
+    </div>
+    <div class="modal-body examples-body">
+      <div class="ex-cats" id="ex-cats"></div>
+      <div class="ex-items" id="ex-items"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 语法帮助对话框 ======================= -->
+<div class="modal-mask hidden" id="modal-help">
+  <div class="modal modal-help" role="dialog" aria-label="语法帮助">
+    <div class="modal-head">
+      <span>表达式语法与使用说明</span>
+      <button class="modal-close" data-close title="关闭">×</button>
+    </div>
+    <div class="modal-body help-body">
+
+      <h3>绘图类型</h3>
+      <table>
+        <tr><th>类型</th><th>输入</th><th>示例</th></tr>
+        <tr><td>显式函数</td><td>y = f(x)</td><td><code>sin(x)/x</code>，<code>e^(-x^2)</code></td></tr>
+        <tr><td>参数方程</td><td>x(t), y(t) 与 t 范围</td><td>摆线 <code>x = t - sin(t)</code>，<code>y = 1 - cos(t)</code></td></tr>
+        <tr><td>极坐标</td><td>r(θ) 与 θ 范围</td><td>心形线 <code>2(1 + cos(θ))</code>（变量可写 θ / theta / t）</td></tr>
+        <tr><td>隐函数</td><td>F(x, y) = 0 或直接写等式</td><td><code>x^2 + y^2 = 4</code>，<code>x^3 + y^3 - 3x*y = 0</code></td></tr>
+        <tr><td>数列</td><td>a(n) 与 n 范围</td><td><code>(1 + 1/n)^n</code></td></tr>
+        <tr><td>三维曲面</td><td>z = f(x, y) 与 x、y 范围</td><td>马鞍面 <code>(x^2 - y^2)/4</code></td></tr>
+        <tr><td>空间曲线</td><td>x(t), y(t), z(t)</td><td>螺旋线 <code>2cos(t), 2sin(t), t/3</code></td></tr>
+      </table>
+
+      <h3>运算符</h3>
+      <table>
+        <tr><th>写法</th><th>含义</th></tr>
+        <tr><td><code>+ - * /</code></td><td>四则运算</td></tr>
+        <tr><td><code>^</code> 或 <code>**</code></td><td>乘方（右结合，<code>-x^2</code> 按 <code>-(x^2)</code> 理解）</td></tr>
+        <tr><td><code>!</code></td><td>阶乘（非整数按 Γ 函数计算）</td></tr>
+        <tr><td>省略乘号</td><td><code>2x</code>、<code>3sin(x)</code>、<code>(x+1)(x-1)</code>、<code>xy</code> 均可</td></tr>
+      </table>
+
+      <h3>函数库</h3>
+      <table>
+        <tr><th>类别</th><th>函数</th></tr>
+        <tr><td>三角</td><td>sin cos tan cot sec csc</td></tr>
+        <tr><td>反三角</td><td>asin acos atan（也可写 arcsin / arccos / arctan）、atan2(y,x)</td></tr>
+        <tr><td>双曲</td><td>sinh cosh tanh asinh acosh atanh</td></tr>
+        <tr><td>指数对数</td><td>exp、ln、log（=ln）、lg（=log10）、log2、log10</td></tr>
+        <tr><td>幂与取整</td><td>sqrt cbrt abs sign floor ceil round</td></tr>
+        <tr><td>其他</td><td>min(a,b) max(a,b) mod(a,b) gamma(x)</td></tr>
+        <tr><td>常量</td><td>pi（或 π）、e</td></tr>
+      </table>
+
+      <h3>交互操作</h3>
+      <table>
+        <tr><td>滚轮</td><td>以鼠标为中心缩放；Shift+滚轮 仅缩放 X 轴，Ctrl+滚轮 仅缩放 Y 轴</td></tr>
+        <tr><td>拖动</td><td>2D 平移视图；3D 旋转视角</td></tr>
+        <tr><td>单击曲线</td><td>显示该点坐标（数据提示），点击空白处取消</td></tr>
+        <tr><td>等比例</td><td>开启后 X/Y 单位长度相同，圆和双纽线等图形不变形</td></tr>
+      </table>
+
+      <h3>分析工具说明</h3>
+      <p>分析工具针对「显式函数 y = f(x)」：切线/法线、导数曲线（f′、f″，符号求导）、定积分（区域着色 + Simpson 数值积分）、泰勒展开（在 x₀ 处展开到指定阶数并叠加图像）。</p>
+      <p class="dim">提示：所有计算在本页面内完成，刷新后函数列表自动恢复（保存在浏览器本地）。</p>
+    </div>
+  </div>
+</div>
+
+<!-- 数学核心层 -->
+<script src="js/core/runtime.js"></script>
+<script src="js/core/parser.js"></script>
+<script src="js/core/compile.js"></script>
+<script src="js/core/derivative.js"></script>
+<script src="js/core/calculus.js"></script>
+<!-- 渲染层 -->
+<script src="js/plot/viewport.js"></script>
+<script src="js/plot/axes.js"></script>
+<script src="js/plot/curves2d.js"></script>
+<script src="js/plot/implicit.js"></script>
+<script src="js/plot/surface3d.js"></script>
+<script src="js/plot/plotter.js"></script>
+<!-- 应用层 -->
+<script src="js/app/examples.js"></script>
+<script src="js/app/state.js"></script>
+<script src="js/app/tools.js"></script>
+<script src="js/app/panel.js"></script>
+<script src="js/app/main.js"></script>
+</body>
+</html>

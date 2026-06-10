@@ -30,6 +30,14 @@
     ctx.restore();
   }
 
+  /** 屏幕坐标夹到绘图框附近：极端值（如 1e60）会破坏 canvas 路径运算 */
+  function clampScreenPt(p, rect) {
+    const mx = 20 * rect.w, my = 20 * rect.h;
+    p.sx = p.sx < rect.x - mx ? rect.x - mx : p.sx > rect.x + rect.w + mx ? rect.x + rect.w + mx : p.sx;
+    p.sy = p.sy < rect.y - my ? rect.y - my : p.sy > rect.y + rect.h + my ? rect.y + rect.h + my : p.sy;
+    return p;
+  }
+
   /** 收集非空点用于命中检测（适度抽稀，控制缓存大小） */
   function hitPoints(pts, every) {
     const out = [];
@@ -41,31 +49,74 @@
 
   /* ---------------- 显式函数 y = f(x) ---------------- */
 
+  /* 自适应细分的最大深度：跳变剧烈处采样密度最多提升 2^6 = 64 倍 */
+  const MAX_REFINE_DEPTH = 6;
+
   function drawExplicit(ctx, vp, rect, f, color, style) {
     const [xmin, xmax] = vp.xRange(rect);
     const [ymin, ymax] = vp.yRange(rect);
     const ySpan = ymax - ymin;
-    const n = Math.max(64, Math.ceil(rect.w * 2));   // 每像素 2 个采样点
+    const n = Math.max(64, Math.ceil(rect.w * 2));   // 基础密度：每像素 2 个采样点
     const dx = (xmax - xmin) / n;
 
-    const pts = [];
-    let prevY = NaN;
-    for (let i = 0; i <= n; i++) {
-      const x = xmin + i * dx;
+    /* 可见带：超出太多的 y 夹到带边再绘制。x^200 这类函数的 1e60 级别值
+       换算成屏幕坐标会超出 canvas 路径运算的精度范围，导致整段折线画不出来 */
+    const yLo = ymin - 2 * ySpan;
+    const yHi = ymax + 2 * ySpan;
+
+    function evalY(x) {
       let y;
-      try { y = f({ x }); } catch (e) { y = NaN; }
-      if (!Number.isFinite(y)) {
-        pts.push(null);
-        prevY = NaN;
-        continue;
-      }
-      /* 垂直渐近线检测：相邻采样跳变远超视高视为断开（如 tan、1/x） */
-      if (Number.isFinite(prevY) && Math.abs(y - prevY) > 30 * ySpan) {
-        pts.push(null);
-      }
-      pts.push({ sx: vp.xToPx(x, rect), sy: vp.yToPx(y, rect), wx: x, wy: y });
-      prevY = y;
+      try { y = f({ x }); } catch (e) { return NaN; }
+      return Number.isFinite(y) ? y : NaN;
     }
+
+    const pts = [];
+    function pushBreak() { if (pts.length && pts[pts.length - 1]) pts.push(null); }
+    function pushPt(x, y) {
+      const yc = y < yLo ? yLo : y > yHi ? yHi : y;
+      pts.push({ sx: vp.xToPx(x, rect), sy: vp.yToPx(yc, rect), wx: x, wy: y });
+    }
+
+    /* 是否需要细分：端点无定义，或跳变明显且该段不是整体落在可见带同一侧之外 */
+    function needSplit(y0, y1) {
+      if (Number.isNaN(y0) || Number.isNaN(y1)) return true;
+      if ((y0 > yHi && y1 > yHi) || (y0 < yLo && y1 < yLo)) return false;
+      return Math.abs(y1 - y0) > ySpan / 8;
+    }
+
+    /* 输出 (x0, x1] 段：必要时递归加密采样，深度耗尽后判定连线或断开 */
+    function segment(x0, y0, x1, y1, depth) {
+      if (depth < MAX_REFINE_DEPTH && needSplit(y0, y1)) {
+        const xm = 0.5 * (x0 + x1);
+        const ym = evalY(xm);
+        /* 两端连同中点都无定义，视作整段在定义域外，不再细分 */
+        if (!(Number.isNaN(y0) && Number.isNaN(ym) && Number.isNaN(y1))) {
+          segment(x0, y0, xm, ym, depth + 1);
+          segment(xm, ym, x1, y1, depth + 1);
+          return;
+        }
+      }
+      if (Number.isNaN(y1)) { pushBreak(); return; }
+      if (Number.isNaN(y0)) {
+        pushBreak();
+      } else if ((y0 > yHi && y1 < yLo) || (y0 < yLo && y1 > yHi)) {
+        /* 垂直渐近线：细分到极限后两端仍分别远在可见带上下两侧（如 tan、1/x）。
+           连续的陡峭函数（如 x^200）只会从带内单侧冲出，不触发断开 */
+        pushBreak();
+      }
+      pushPt(x1, y1);
+    }
+
+    let xPrev = xmin;
+    let yPrev = evalY(xmin);
+    if (!Number.isNaN(yPrev)) pushPt(xmin, yPrev);
+    for (let i = 1; i <= n; i++) {
+      const x = xmin + i * dx;
+      const y = evalY(x);
+      segment(xPrev, yPrev, x, y, 0);
+      xPrev = x; yPrev = y;
+    }
+
     strokePolyline(ctx, pts, color, style && style.width, style && style.dash);
     return hitPoints(pts, 3);
   }
@@ -81,7 +132,7 @@
       let x, y;
       try { x = fx({ t }); y = fy({ t }); } catch (e) { x = NaN; y = NaN; }
       if (!Number.isFinite(x) || !Number.isFinite(y)) { pts.push(null); continue; }
-      pts.push({ sx: vp.xToPx(x, rect), sy: vp.yToPx(y, rect), wx: x, wy: y });
+      pts.push(clampScreenPt({ sx: vp.xToPx(x, rect), sy: vp.yToPx(y, rect), wx: x, wy: y }, rect));
     }
     strokePolyline(ctx, pts, color);
     return hitPoints(pts, 4);
@@ -101,7 +152,7 @@
       if (!Number.isFinite(r)) { pts.push(null); continue; }   // 如 √cos2θ 的无定义区
       const x = r * Math.cos(th);
       const y = r * Math.sin(th);
-      pts.push({ sx: vp.xToPx(x, rect), sy: vp.yToPx(y, rect), wx: x, wy: y });
+      pts.push(clampScreenPt({ sx: vp.xToPx(x, rect), sy: vp.yToPx(y, rect), wx: x, wy: y }, rect));
     }
     strokePolyline(ctx, pts, color);
     return hitPoints(pts, 4);

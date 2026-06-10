@@ -1,7 +1,8 @@
 /* ============================================================
  * core/calculus.js — 微积分数值/符号工具
- * Simpson 数值积分、数值微分（符号求导失败时的后备）、
- * 切线数据、泰勒展开（基于符号高阶导数）
+ * Simpson 数值积分、黎曼和、数值微分（符号求导失败时的后备）、
+ * 切线数据、泰勒展开（基于符号高阶导数）、
+ * RK4 常微分方程积分曲线、扫描求根（零点/极值/拐点检测）
  * 依赖：core/runtime.js, core/parser.js, core/compile.js, core/derivative.js
  * ============================================================ */
 (function (root) {
@@ -31,11 +32,116 @@
     return { value: sum * h / 3, ok: nanCount === 0, nanCount };
   }
 
+  /* ---------------- 黎曼和（定积分定义的可视化） ----------------
+   * method: 'left' | 'mid' | 'right'
+   * 返回矩形列表（世界坐标）供绘制，矩形高度取样点函数值
+   */
+  function riemann(f, a, b, n, method) {
+    n = Math.max(1, Math.round(n || 20));
+    const h = (b - a) / n;
+    const off = method === 'left' ? 0 : method === 'right' ? 1 : 0.5;
+    let sum = 0, nanCount = 0;
+    const rects = [];
+    for (let i = 0; i < n; i++) {
+      const x0 = a + i * h;
+      let y;
+      try { y = f(x0 + off * h); } catch (e) { y = NaN; }
+      if (!Number.isFinite(y)) { nanCount++; continue; }
+      sum += y * h;
+      rects.push({ x0, x1: x0 + h, y });
+    }
+    return { value: sum, rects, nanCount, n, method: method || 'mid' };
+  }
+
   /* ---------------- 数值微分（中心差分） ---------------- */
 
   function numericDiff(f, x) {
     const h = 1e-5 * Math.max(1, Math.abs(x));
     return (f(x + h) - f(x - h)) / (2 * h);
+  }
+
+  /* ---------------- 常微分方程 y′ = f(x, y)：RK4 积分曲线 ----------------
+   * 从初值 (x0, y0) 向两侧积分到 [xmin, xmax] 边界；
+   * y 超出守护带（yLo/yHi）或出现非有限值时停止
+   */
+  function odeCurve(fxy, x0, y0, xmin, xmax, opts) {
+    opts = opts || {};
+    const maxSteps = opts.maxSteps || 4000;
+    const yLo = opts.yLo !== undefined ? opts.yLo : -1e6;
+    const yHi = opts.yHi !== undefined ? opts.yHi : 1e6;
+    const span = Math.max(1e-12, xmax - xmin);
+    const h0 = span / (opts.density || 600);
+
+    function integrate(dir) {
+      const pts = [];
+      let x = x0, y = y0;
+      const h = dir * h0;
+      for (let i = 0; i < maxSteps; i++) {
+        if (dir > 0 ? x >= xmax : x <= xmin) break;
+        const k1 = fxy(x, y);
+        const k2 = fxy(x + h / 2, y + h * k1 / 2);
+        const k3 = fxy(x + h / 2, y + h * k2 / 2);
+        const k4 = fxy(x + h, y + h * k3);
+        const dy = (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+        if (!Number.isFinite(dy)) break;
+        x += h;
+        y += dy;
+        if (!Number.isFinite(y) || y < yLo || y > yHi) break;
+        pts.push({ x, y });
+      }
+      return pts;
+    }
+
+    const ok = Number.isFinite(fxy(x0, y0)) && Number.isFinite(y0);
+    return { ok, fwd: ok ? integrate(1) : [], bwd: ok ? integrate(-1) : [] };
+  }
+
+  /* ---------------- 扫描求根 ----------------
+   * 等距采样找符号变化，再二分精化；用于零点/极值（g = f′）/拐点（g = f″）
+   * 返回升序根列表（相邻重复自动去除，上限 80 个）
+   */
+  function findRoots(g, a, b, samples) {
+    samples = samples || 600;
+    const roots = [];
+    const minGap = (b - a) / samples * 0.5;
+
+    function pushRoot(r) {
+      if (roots.length >= 80) return;
+      if (roots.length && Math.abs(r - roots[roots.length - 1]) < minGap) return;
+      roots.push(r);
+    }
+
+    let xPrev = a, yPrev = safeEval(g, a);
+    for (let i = 1; i <= samples; i++) {
+      const x = a + (b - a) * i / samples;
+      const y = safeEval(g, x);
+      if (yPrev === 0) pushRoot(xPrev);
+      if (Number.isFinite(yPrev) && Number.isFinite(y) && yPrev * y < 0) {
+        let lo = xPrev, hi = x, ylo = yPrev;
+        for (let k = 0; k < 60; k++) {
+          const m = (lo + hi) / 2;
+          const ym = safeEval(g, m);
+          if (!Number.isFinite(ym)) break;
+          if (ym === 0) { lo = hi = m; break; }
+          if (ylo * ym < 0) hi = m;
+          else { lo = m; ylo = ym; }
+        }
+        pushRoot((lo + hi) / 2);
+      }
+      xPrev = x;
+      yPrev = y;
+    }
+    if (yPrev === 0) pushRoot(xPrev);
+    return roots;
+  }
+
+  function safeEval(g, x) {
+    try {
+      const v = g(x);
+      return typeof v === 'number' ? v : NaN;
+    } catch (e) {
+      return NaN;
+    }
   }
 
   /* ---------------- 切线 / 法线 ----------------
@@ -60,17 +166,21 @@
    * 反复符号求导求 f⁽ⁱ⁾(x0)，系数 cᵢ = f⁽ⁱ⁾(x0)/i!
    * 返回多项式求值函数与显示文本
    */
-  function taylor(ast, x0, order) {
+  function taylor(ast, x0, order, extraScope) {
     const { derivative } = core.derivative;
     const { compile } = core.compile;
     const { factorial } = core.runtime;
+
+    /* extraScope：自由参数的当前取值（参数滑块），随 x 一起代入 */
+    const scope = Object.assign({}, extraScope || {});
+    scope.x = x0;
 
     const coeffs = [];
     let cur = ast;
     for (let i = 0; i <= order; i++) {
       let val;
       try {
-        val = compile(cur)({ x: x0 });
+        val = compile(cur)(scope);
       } catch (e) {
         return { ok: false, reason: '求导结果无法求值' };
       }
@@ -118,6 +228,6 @@
     return { ok: true, coeffs, fn: polyFn, text: polyStr };
   }
 
-  core.calculus = { simpson, numericDiff, tangentAt, taylor };
+  core.calculus = { simpson, riemann, numericDiff, tangentAt, taylor, odeCurve, findRoots };
 
 })(typeof window !== 'undefined' ? window : globalThis);

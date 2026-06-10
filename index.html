@@ -14,7 +14,7 @@
   <header class="app-header">
     <span class="logo" aria-hidden="true">ƒ</span>
     <span class="app-title">FuncLab <span class="app-subtitle">函数图像实验室</span></span>
-    <span class="app-ver">R1.0</span>
+    <span class="app-ver">R1.1</span>
     <span class="flex-spacer"></span>
     <span class="app-note">本地运行 · 无需联网</span>
   </header>
@@ -151,9 +151,19 @@
         <tr><td>极坐标</td><td>r(θ) 与 θ 范围</td><td>心形线 <code>2(1 + cos(θ))</code>（变量可写 θ / theta / t）</td></tr>
         <tr><td>隐函数</td><td>F(x, y) = 0 或直接写等式</td><td><code>x^2 + y^2 = 4</code>，<code>x^3 + y^3 - 3x*y = 0</code></td></tr>
         <tr><td>数列</td><td>a(n) 与 n 范围</td><td><code>(1 + 1/n)^n</code></td></tr>
+        <tr><td>级数部分和</td><td>通项 uₙ(x)（含 n，可含 x）与 n 范围</td><td><code>x^n/n!</code> → 部分和逼近 e^x，拖动/播放 N</td></tr>
+        <tr><td>方向场</td><td>y′ = f(x, y)，可选初值点</td><td><code>x - y</code>，过 (0, 0) 自动画积分曲线（RK4）</td></tr>
+        <tr><td>向量场</td><td>P(x, y) 与 Q(x, y)</td><td>旋转场 <code>P = -y</code>，<code>Q = x</code></td></tr>
+        <tr><td>梯度场</td><td>f(x, y)，自动求 ∇f 并叠加等值线</td><td><code>x^2 + y^2</code>（箭头与等值线处处正交）</td></tr>
         <tr><td>三维曲面</td><td>z = f(x, y) 与 x、y 范围</td><td>马鞍面 <code>(x^2 - y^2)/4</code></td></tr>
         <tr><td>空间曲线</td><td>x(t), y(t), z(t)</td><td>螺旋线 <code>2cos(t), 2sin(t), t/3</code></td></tr>
       </table>
+
+      <h3>参数滑块</h3>
+      <p>表达式中可直接使用未定义的<b>单字母参数</b>（如 <code>a·sin(b·x)</code> 中的 a、b），
+      函数卡片会自动生成对应滑块：拖动实时改变图像，点 ▶ 在范围内往返动画。
+      参数适用于所有绘图类型（显式、极坐标、隐函数、曲面……），切线、泰勒展开等分析工具也会代入当前参数值。
+      注意：连写 <code>ab</code> 按 a·b 理解；<code>sinx</code> 这类疑似函数拼写会提示改成 <code>sin(x)</code>。</p>
 
       <h3>运算符</h3>
       <table>
@@ -185,7 +195,10 @@
       </table>
 
       <h3>分析工具说明</h3>
-      <p>分析工具针对「显式函数 y = f(x)」：切线/法线、导数曲线（f′、f″，符号求导）、定积分（区域着色 + Simpson 数值积分）、泰勒展开（在 x₀ 处展开到指定阶数并叠加图像）。</p>
+      <p>分析工具针对「显式函数 y = f(x)」：切线/法线、导数曲线（f′、f″，符号求导）、
+      定积分（区域着色 + Simpson 数值积分，可叠加<b>黎曼和矩形</b>：左/中/右端点取样，拖动或播放 n 观察矩形和逼近定积分）、
+      泰勒展开（在 x₀ 处展开到指定阶数并叠加图像）、
+      <b>特征点</b>（自动标注可见范围内的零点 ○、极大 ▲、极小 ▼、拐点 ◆，并列出坐标）。</p>
       <p class="dim">提示：所有计算在本页面内完成，刷新后函数列表自动恢复（保存在浏览器本地）。</p>
     </div>
   </div>
@@ -202,6 +215,7 @@
 <script src="js/plot/axes.js"></script>
 <script src="js/plot/curves2d.js"></script>
 <script src="js/plot/implicit.js"></script>
+<script src="js/plot/fields.js"></script>
 <script src="js/plot/surface3d.js"></script>
 <script src="js/plot/plotter.js"></script>
 <!-- 应用层 -->
